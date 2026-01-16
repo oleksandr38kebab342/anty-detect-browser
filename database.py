@@ -250,32 +250,6 @@ class Database:
         conn.commit()
         conn.close()
 
-    # Налаштування
-    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        """Отримує значення налаштування."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        return row['value'] if row else default
-
-    def set_setting(self, key: str, value: str):
-        """Зберігає значення налаштування."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO settings (key, value) 
-            VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = ?
-        """, (key, value, value))
-        
-        conn.commit()
-        conn.close()
-
     def delete_proxy(self, proxy_id: int):
         """Видаляє проксі."""
         conn = self.get_connection()
@@ -290,3 +264,27 @@ class Database:
         conn.commit()
         conn.close()
 
+    # Налаштування
+    def get_setting(self, key: str, default: str = None) -> Optional[str]:
+        """Отримує значення налаштування."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str):
+        """Зберігає налаштування."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES (?, ?)
+        """, (key, value))
+        
+        conn.commit()
+        conn.close()
