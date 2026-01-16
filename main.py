@@ -28,6 +28,7 @@ class AntyDetectBrowser:
         self.proxy_statuses = {}
         self.selected_proxy_ids = set()
         self.select_all_proxies = False
+        self._updating_select_all = False
         
         # Ініціалізація UI
         self.setup_page()
@@ -350,19 +351,32 @@ class AntyDetectBrowser:
             if proxy['id'] in self.proxy_statuses:
                 status_info = self.proxy_statuses[proxy['id']]
                 if status_info['status'] == 'working':
-                    status_text = ft.Text("✓ Працює", color=ft.Colors.GREEN)
+                    status_text = ft.Text("Працює", color=ft.Colors.GREEN)
                 elif status_info['status'] == 'failed':
-                    status_text = ft.Text("✗ Не працює", color=ft.Colors.RED)
+                    error_msg = status_info.get('error')
+                    status_text = ft.Text("Не працює", color=ft.Colors.RED, tooltip=error_msg or None)
                 elif status_info['status'] == 'checking':
                     status_text = ft.Text("Перевіряється...", color=ft.Colors.ORANGE)
+
+            icon_color = None
+            icon_name = ft.Icons.CHECK_CIRCLE_OUTLINE
+            if proxy['id'] in self.proxy_statuses:
+                status_value = self.proxy_statuses[proxy['id']].get('status')
+                if status_value == 'working':
+                    icon_color = ft.Colors.GREEN
+                    icon_name = ft.Icons.CHECK_CIRCLE
+                elif status_value == 'failed':
+                    icon_color = ft.Colors.RED
+                    icon_name = ft.Icons.CANCEL
 
             status_cell = ft.Row(
                 [
                     status_text,
                     ft.IconButton(
-                        ft.Icons.CHECK_CIRCLE,
+                        icon_name,
                         tooltip="Перевірити проксі",
                         icon_size=20,
+                        icon_color=icon_color,
                         on_click=lambda e, pid=proxy['id']: self.check_proxy(pid),
                     ),
                 ],
@@ -411,8 +425,10 @@ class AntyDetectBrowser:
         if self.proxies_table.columns:
             header_checkbox = self.proxies_table.columns[0].label
             if isinstance(header_checkbox, ft.Checkbox):
+                self._updating_select_all = True
                 header_checkbox.value = self.select_all_proxies
                 header_checkbox.update()
+                self._updating_select_all = False
 
     def refresh_current_view(self):
         """Оновлює поточний вид."""
@@ -447,6 +463,8 @@ class AntyDetectBrowser:
             self.selected_proxy_ids.discard(proxy_id)
 
     def toggle_select_all_proxies(self, selected: bool):
+        if self._updating_select_all:
+            return
         proxies = self.db.get_all_proxies()
         if selected:
             self.selected_proxy_ids = {p['id'] for p in proxies}
@@ -461,6 +479,10 @@ class AntyDetectBrowser:
 
         for proxy_id in list(self.selected_proxy_ids):
             self.check_proxy(proxy_id)
+
+        # Скидаємо вибір після запуску перевірки
+        self.selected_proxy_ids.clear()
+        self.refresh_proxies()
 
     def show_create_profile_dialog(self, e):
         """Показує діалог створення профілю."""
@@ -977,18 +999,21 @@ class AntyDetectBrowser:
                 session.mount('http://', adapter)
                 session.mount('https://', adapter)
 
-                # Перевіряємо через google.com з таймаутом 10 секунд
+                # Перевіряємо через ipify з таймаутом 15 секунд
                 response = session.get(
-                    'http://www.google.com',
+                    'https://api.ipify.org?format=json',
                     proxies=proxies_dict,
-                    timeout=10,
+                    timeout=15,
                     allow_redirects=True
                 )
 
                 if response.status_code == 200:
                     self.proxy_statuses[proxy_id] = {'status': 'working'}
                 else:
-                    self.proxy_statuses[proxy_id] = {'status': 'failed'}
+                    self.proxy_statuses[proxy_id] = {
+                        'status': 'failed',
+                        'error': f"HTTP {response.status_code}"
+                    }
             except Exception as e:
                 # Спробуємо альтернативний метод через Playwright для SOCKS
                 if proxy['type'] in ['socks4', 'socks5']:
