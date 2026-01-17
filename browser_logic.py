@@ -53,7 +53,7 @@ class BrowserManager:
         return proxy_config
 
     def launch_profile(self, profile_id: str, proxy_data: Optional[Dict] = None,
-                      headless: bool = False) -> BrowserContext:
+                      headless: bool = False, profile_settings: Optional[Dict] = None) -> BrowserContext:
         """
         Запускає браузер для профілю.
         
@@ -73,6 +73,28 @@ class BrowserManager:
             playwright = self._get_playwright()
 
             proxy_config = self.get_proxy_config(proxy_data)
+            profile_settings = profile_settings or {}
+
+            user_agent = profile_settings.get("user_agent")
+            locale = profile_settings.get("locale")
+            timezone_id = profile_settings.get("timezone_id")
+            geolocation = profile_settings.get("geolocation")
+            permissions = profile_settings.get("permissions")
+            extra_http_headers = profile_settings.get("extra_http_headers")
+
+            context_options = {}
+            if user_agent:
+                context_options["user_agent"] = user_agent
+            if locale:
+                context_options["locale"] = locale
+            if timezone_id:
+                context_options["timezone_id"] = timezone_id
+            if geolocation:
+                context_options["geolocation"] = geolocation
+            if permissions is not None:
+                context_options["permissions"] = permissions
+            if extra_http_headers:
+                context_options["extra_http_headers"] = extra_http_headers
 
             # Спробуємо спочатку з Chrome, якщо не вийде - використаємо Chromium
             launch_options = {
@@ -95,7 +117,8 @@ class BrowserManager:
                         **launch_options,
                         proxy=proxy_config if proxy_config else None,
                         viewport={"width": 1920, "height": 1080},
-                        args=browser_args
+                        args=browser_args,
+                        **context_options
                     )
                 except Exception:
                     # Якщо Chrome недоступний, використовуємо Chromium
@@ -104,7 +127,8 @@ class BrowserManager:
                         **launch_options,
                         proxy=proxy_config if proxy_config else None,
                         viewport={"width": 1920, "height": 1080},
-                        args=browser_args
+                        args=browser_args,
+                        **context_options
                     )
 
                 self.running_browsers[profile_id] = context

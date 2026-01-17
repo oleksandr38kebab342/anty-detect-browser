@@ -33,6 +33,16 @@ class Database:
                 notes TEXT,
                 proxy_id INTEGER,
                 tags TEXT,
+                os TEXT,
+                user_agent TEXT,
+                open_tabs TEXT,
+                timezone_mode TEXT,
+                timezone_value TEXT,
+                geolocation_mode TEXT,
+                geolocation_lat REAL,
+                geolocation_lon REAL,
+                language_mode TEXT,
+                languages TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (proxy_id) REFERENCES proxies(id)
@@ -64,18 +74,73 @@ class Database:
         conn.commit()
         conn.close()
 
+        # Додаємо відсутні колонки для сумісності зі старими БД
+        self._ensure_profile_columns()
+
+    def _ensure_profile_columns(self):
+        """Додає нові колонки до таблиці profiles, якщо їх немає."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(profiles)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        columns_to_add = {
+            "os": "TEXT",
+            "user_agent": "TEXT",
+            "open_tabs": "TEXT",
+            "timezone_mode": "TEXT",
+            "timezone_value": "TEXT",
+            "geolocation_mode": "TEXT",
+            "geolocation_lat": "REAL",
+            "geolocation_lon": "REAL",
+            "language_mode": "TEXT",
+            "languages": "TEXT",
+        }
+
+        for column, col_type in columns_to_add.items():
+            if column not in existing_columns:
+                cursor.execute(f"ALTER TABLE profiles ADD COLUMN {column} {col_type}")
+
+        conn.commit()
+        conn.close()
+
+    def get_next_profile_number(self) -> int:
+        """Повертає наступний порядковий номер профілю."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT IFNULL(MAX(id), 0) + 1 FROM profiles")
+        next_id = cursor.fetchone()[0]
+        conn.close()
+        return int(next_id)
+
     # Профілі
     def create_profile(self, name: str, profile_id: str, notes: str = "", 
-                      proxy_id: Optional[int] = None, tags: str = "") -> int:
+                      proxy_id: Optional[int] = None, tags: str = "",
+                      os: str = None, user_agent: str = None, open_tabs: str = None,
+                      timezone_mode: str = None, timezone_value: str = None,
+                      geolocation_mode: str = None, geolocation_lat: float = None,
+                      geolocation_lon: float = None, language_mode: str = None,
+                      languages: str = None) -> int:
         """Створює новий профіль."""
         conn = self.get_connection()
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         
         cursor.execute("""
-            INSERT INTO profiles (name, profile_id, notes, proxy_id, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (name, profile_id, notes, proxy_id, tags, now, now))
+            INSERT INTO profiles (
+                name, profile_id, notes, proxy_id, tags,
+                os, user_agent, open_tabs, timezone_mode, timezone_value,
+                geolocation_mode, geolocation_lat, geolocation_lon,
+                language_mode, languages, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name, profile_id, notes, proxy_id, tags,
+            os, user_agent, open_tabs, timezone_mode, timezone_value,
+            geolocation_mode, geolocation_lat, geolocation_lon,
+            language_mode, languages, now, now
+        ))
         
         profile_db_id = cursor.lastrowid
         conn.commit()
@@ -88,7 +153,10 @@ class Database:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT p.id, p.name, p.profile_id, p.notes, p.proxy_id, p.tags,
+             SELECT p.id, p.name, p.profile_id, p.notes, p.proxy_id, p.tags,
+                 p.os, p.user_agent, p.open_tabs, p.timezone_mode, p.timezone_value,
+                 p.geolocation_mode, p.geolocation_lat, p.geolocation_lon,
+                 p.language_mode, p.languages,
                    pr.name as proxy_name, pr.type as proxy_type, 
                    pr.host as proxy_host, pr.port as proxy_port
             FROM profiles p
@@ -108,6 +176,9 @@ class Database:
         
         cursor.execute("""
             SELECT p.id, p.name, p.profile_id, p.notes, p.proxy_id, p.tags,
+                   p.os, p.user_agent, p.open_tabs, p.timezone_mode, p.timezone_value,
+                   p.geolocation_mode, p.geolocation_lat, p.geolocation_lon,
+                   p.language_mode, p.languages,
                    pr.name as proxy_name, pr.type as proxy_type,
                    pr.host as proxy_host, pr.port as proxy_port,
                    pr.username as proxy_username, pr.password as proxy_password
@@ -122,7 +193,12 @@ class Database:
         return dict(row) if row else None
 
     def update_profile(self, profile_id: str, name: str = None, notes: str = None,
-                      proxy_id: Optional[int] = None, tags: str = None):
+                      proxy_id: Optional[int] = None, tags: str = None,
+                      os: str = None, user_agent: str = None, open_tabs: str = None,
+                      timezone_mode: str = None, timezone_value: str = None,
+                      geolocation_mode: str = None, geolocation_lat: float = None,
+                      geolocation_lon: float = None, language_mode: str = None,
+                      languages: str = None):
         """Оновлює профіль."""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -142,6 +218,36 @@ class Database:
         if tags is not None:
             updates.append("tags = ?")
             params.append(tags)
+        if os is not None:
+            updates.append("os = ?")
+            params.append(os)
+        if user_agent is not None:
+            updates.append("user_agent = ?")
+            params.append(user_agent)
+        if open_tabs is not None:
+            updates.append("open_tabs = ?")
+            params.append(open_tabs)
+        if timezone_mode is not None:
+            updates.append("timezone_mode = ?")
+            params.append(timezone_mode)
+        if timezone_value is not None:
+            updates.append("timezone_value = ?")
+            params.append(timezone_value)
+        if geolocation_mode is not None:
+            updates.append("geolocation_mode = ?")
+            params.append(geolocation_mode)
+        if geolocation_lat is not None:
+            updates.append("geolocation_lat = ?")
+            params.append(geolocation_lat)
+        if geolocation_lon is not None:
+            updates.append("geolocation_lon = ?")
+            params.append(geolocation_lon)
+        if language_mode is not None:
+            updates.append("language_mode = ?")
+            params.append(language_mode)
+        if languages is not None:
+            updates.append("languages = ?")
+            params.append(languages)
         
         updates.append("updated_at = ?")
         params.append(datetime.now().isoformat())
