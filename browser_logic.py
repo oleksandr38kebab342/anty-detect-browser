@@ -4,8 +4,9 @@
 import os
 import uuid
 import threading
+import asyncio
 from typing import Optional, Dict
-from playwright.sync_api import sync_playwright, BrowserContext, Playwright
+from playwright.async_api import async_playwright, BrowserContext, Playwright
 from pathlib import Path
 
 
@@ -17,10 +18,10 @@ class BrowserManager:
         self.playwright: Optional[Playwright] = None
         self._lock = threading.Lock()
 
-    def _get_playwright(self):
+    async def _get_playwright(self):
         """Отримує або створює екземпляр Playwright."""
         if self.playwright is None:
-            self.playwright = sync_playwright().start()
+            self.playwright = await async_playwright().start()
         return self.playwright
 
     def generate_profile_id(self) -> str:
@@ -52,7 +53,7 @@ class BrowserManager:
 
         return proxy_config
 
-    def launch_profile(self, profile_id: str, proxy_data: Optional[Dict] = None,
+    async def launch_profile(self, profile_id: str, proxy_data: Optional[Dict] = None,
                       headless: bool = False, profile_settings: Optional[Dict] = None) -> BrowserContext:
         """
         Запускає браузер для профілю.
@@ -70,7 +71,7 @@ class BrowserManager:
                 return self.running_browsers[profile_id]
 
             profile_path = self.create_profile_folder(profile_id)
-            playwright = self._get_playwright()
+            playwright = await self._get_playwright()
 
             proxy_config = self.get_proxy_config(proxy_data)
             profile_settings = profile_settings or {}
@@ -82,7 +83,9 @@ class BrowserManager:
             permissions = profile_settings.get("permissions")
             extra_http_headers = profile_settings.get("extra_http_headers")
 
-            context_options = {}
+            context_options = {
+                "no_viewport": True,
+            }
             if user_agent:
                 context_options["user_agent"] = user_agent
             if locale:
@@ -106,27 +109,27 @@ class BrowserManager:
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
+                "--start-maximized",
+                "--force-device-scale-factor=1",
             ]
 
             try:
                 # Спробуємо запустити з Chrome
                 try:
-                    context = playwright.chromium.launch_persistent_context(
+                    context = await playwright.chromium.launch_persistent_context(
                         user_data_dir=str(profile_path),
                         channel="chrome",
                         **launch_options,
                         proxy=proxy_config if proxy_config else None,
-                        viewport={"width": 1920, "height": 1080},
                         args=browser_args,
                         **context_options
                     )
                 except Exception:
                     # Якщо Chrome недоступний, використовуємо Chromium
-                    context = playwright.chromium.launch_persistent_context(
+                    context = await playwright.chromium.launch_persistent_context(
                         user_data_dir=str(profile_path),
                         **launch_options,
                         proxy=proxy_config if proxy_config else None,
-                        viewport={"width": 1920, "height": 1080},
                         args=browser_args,
                         **context_options
                     )
@@ -137,13 +140,13 @@ class BrowserManager:
                 print(f"Помилка запуску браузера для профілю {profile_id}: {e}")
                 raise
 
-    def stop_profile(self, profile_id: str):
+    async def stop_profile(self, profile_id: str):
         """Зупиняє браузер профілю."""
         with self._lock:
             if profile_id in self.running_browsers:
                 try:
                     context = self.running_browsers[profile_id]
-                    context.close()
+                    await context.close()
                 except Exception as e:
                     print(f"Помилка закриття браузера для профілю {profile_id}: {e}")
                 finally:
@@ -166,17 +169,35 @@ class BrowserManager:
                 del self.running_browsers[profile_id]
                 return False
 
-    def stop_all_profiles(self):
+    async def stop_all_profiles(self):
         """Зупиняє всі запущені профілі."""
         with self._lock:
             profile_ids = list(self.running_browsers.keys())
-            for profile_id in profile_ids:
-                self.stop_profile(profile_id)
+        for profile_id in profile_ids:
+            await self.stop_profile(profile_id)
 
-    def cleanup(self):
+    async def cleanup(self):
         """Очищає ресурси (закриває Playwright)."""
-        self.stop_all_profiles()
+        await self.stop_all_profiles()
         if self.playwright:
-            self.playwright.stop()
+            await self.playwright.stop()
             self.playwright = None
+
+    def cleanup_sync(self):
+        """Спроба синхронно закрити Playwright при завершенні застосунку."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(self.cleanup())
+            except Exception:
+                pass
+            return
+
+        try:
+            task = loop.create_task(self.cleanup())
+            if not loop.is_running():
+                loop.run_until_complete(task)
+        except Exception:
+            pass
 

@@ -1,5 +1,5 @@
 import json
-import threading
+import asyncio
 
 
 def toggle_profile(self, e):
@@ -13,11 +13,13 @@ def toggle_profile(self, e):
     is_running = self.browser_manager.is_profile_running(profile_id)
 
     if is_running:
-        self.browser_manager.stop_profile(profile_id)
-        self.refresh_profiles()
+        async def stop():
+            await self.browser_manager.stop_profile(profile_id)
+            self.refresh_profiles()
+
+        self.page.run_task(stop)
     else:
-        # Запускаємо в окремому потоці
-        def launch():
+        async def launch():
             try:
                 profile = self.db.get_profile_by_id(profile_id)
                 proxy_data = None
@@ -30,7 +32,7 @@ def toggle_profile(self, e):
                 if profile:
                     profile_settings = self.build_profile_launch_settings(profile)
 
-                context = self.browser_manager.launch_profile(
+                context = await self.browser_manager.launch_profile(
                     profile_id,
                     proxy_data,
                     headless=False,
@@ -48,24 +50,39 @@ def toggle_profile(self, e):
                         try:
                             pages = context.pages
                             if pages:
-                                pages[0].goto(tabs[0])
-                                for url in tabs[1:]:
-                                    context.new_page().goto(url)
+                                page = pages[0]
                             else:
-                                for url in tabs:
-                                    context.new_page().goto(url)
+                                page = await context.new_page()
+
+                            await page.goto(tabs[0])
+                            try:
+                                await page.evaluate(
+                                    """() => { window.moveTo(0,0); window.resizeTo(screen.availWidth, screen.availHeight); }"""
+                                )
+                            except Exception:
+                                pass
+
+                            for url in tabs[1:]:
+                                await page.evaluate("url => window.open(url, '_blank')", url)
                         except Exception as ex:
                             print(f"Помилка відкриття вкладок: {ex}")
+                else:
+                    pages = context.pages
+                    if pages:
+                        try:
+                            await pages[0].evaluate(
+                                """() => { window.moveTo(0,0); window.resizeTo(screen.availWidth, screen.availHeight); }"""
+                            )
+                        except Exception:
+                            pass
                 # Оновлюємо інтерфейс після успішного запуску
-                import time
-                time.sleep(0.5)
-                self.run_ui(self.refresh_profiles)
+                await asyncio.sleep(0.5)
+                self.refresh_profiles()
             except Exception as ex:
                 print(f"Помилка запуску профілю {profile_id}: {ex}")
                 # Показуємо повідомлення про помилку
-                self.run_ui(lambda: self.show_error_dialog(f"Помилка запуску профілю: {ex}"))
+                self.show_error_dialog(f"Помилка запуску профілю: {ex}")
 
-        thread = threading.Thread(target=launch, daemon=True)
-        thread.start()
+        self.page.run_task(launch)
         # Оновлюємо одразу для показу статусу "запускається"
         self.refresh_profiles()
