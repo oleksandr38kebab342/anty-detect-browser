@@ -1,7 +1,6 @@
 """
 Модуль для роботи з Playwright та керування браузерними профілями.
 """
-import os
 import uuid
 import threading
 import asyncio
