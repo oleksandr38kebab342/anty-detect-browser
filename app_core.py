@@ -33,6 +33,7 @@ from app_funcs.import_proxies_from_file import import_proxies_from_file
 from app_funcs.show_import_proxy_dialog import show_import_proxy_dialog
 from app_funcs.show_success_dialog import show_success_dialog
 from app_funcs.show_error_dialog import show_error_dialog
+from app_funcs.save_profile_tabs_manually import save_profile_tabs_manually
 
 
 class AntyDetectBrowser:
@@ -71,3 +72,4 @@ class AntyDetectBrowser:
     show_import_proxy_dialog = show_import_proxy_dialog
     show_success_dialog = show_success_dialog
     show_error_dialog = show_error_dialog
+    save_profile_tabs_manually = save_profile_tabs_manually
